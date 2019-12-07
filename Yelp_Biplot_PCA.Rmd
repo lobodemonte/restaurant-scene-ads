@@ -1,0 +1,132 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This notebook will perform PCA and K-Means clustering on the Yelp datasets. Finally, the clusters will be visualized using biplots to show how the clustering took place. 
+
+```{r libraries}
+# Loading libraries
+library(tidyverse)
+library(lattice)
+library(caret)
+library(ggbiplot)
+library(ggplot2)
+
+# Set seed to ensure reproducibility wrt K-Means
+set.seed(123)
+```
+
+```{r warning=FALSE}
+# Setting path 
+# Reading in data
+path <- "./Yelp/"
+BK_Yelp <- "BK_Yelp_CensusTract_NTA.csv"
+MN_Yelp <- "MN_Yelp_CensusTract_NTA.csv"
+BK_Yelp <- read_csv(paste(path, BK_Yelp, sep = ""))
+MN_Yelp <- read_csv(paste(path, MN_Yelp, sep = ""))
+```
+
+```{r Cleaning}
+# Cleaning the price column for MN
+MN_Yelp2 <- MN_Yelp %>% 
+  mutate(price = replace(price, price == 'MISSING', NA))
+MN_Yelp2 <- na.omit(MN_Yelp2)
+MN_Yelp2$price <- gsub("\\$", "i", MN_Yelp2$price)
+MN_Yelp2$price[which(MN_Yelp2$price == "i")] = 1
+MN_Yelp2$price[which(MN_Yelp2$price == "ii")] = 2
+MN_Yelp2$price[which(MN_Yelp2$price == "iii")] = 3
+MN_Yelp2$price[which(MN_Yelp2$price == "iiii")] = 4
+MN_Yelp2$price <- as.numeric(MN_Yelp2$price)
+MN_Yelp2 <- MN_Yelp2[, c(2:16, 18, 19, 27)]
+```
+
+```{r}
+# Cleaning the price column for BK
+BK_Yelp2 <- BK_Yelp %>% 
+  mutate(price = replace(price, price == 'MISSING', NA))
+BK_Yelp2$price <- gsub("\\$", "i", BK_Yelp2$price)
+BK_Yelp2 <- na.omit(BK_Yelp2)
+BK_Yelp2$price[which(BK_Yelp2$price == "i")] = 1
+BK_Yelp2$price[which(BK_Yelp2$price == "ii")] = 2
+BK_Yelp2$price[which(BK_Yelp2$price == "iii")] = 3
+BK_Yelp2$price[which(BK_Yelp2$price == "iiii")] = 4
+BK_Yelp2$price <- as.numeric(BK_Yelp2$price)
+BK_Yelp2 <- BK_Yelp2[, c(2:16, 18, 19, 27)]
+```
+
+```{r}
+# Joining the two together by rows
+NYC_Yelp = rbind(BK_Yelp2, MN_Yelp2)
+```
+
+
+```{r}
+# Performing PCA on all three
+BK_Yelp_pca <- prcomp(BK_Yelp2[,c(5:7)], 
+                     center = T,
+                     scale. = T)
+summary(BK_Yelp_pca)
+MN_Yelp_pca <- prcomp(MN_Yelp2[,c(5:7)], 
+                     center = T,
+                     scale. = T)
+summary(MN_Yelp_pca)
+NYC_Yelp_pca <- prcomp(NYC_Yelp[,c(5:7)], 
+                     center = T,
+                     scale. = T)
+summary(NYC_Yelp_pca)
+```
+
+Just calculating for BK, we can see that for the first PC, it is almost equally affected by the three factors whereas PC2 is more affected by Ratings.
+```{r}
+# create new data frame with centered variables
+scaled_df <- apply(BK_Yelp2[,c(5:7)], 2, scale)
+head(scaled_df)
+
+#Eigenvalues and eigen vectors
+BK_Yelp.cov <- cov(scaled_df)
+BK_Yelp.eigen <- eigen(BK_Yelp.cov)
+phi <- BK_Yelp.eigen$vectors[,1:2]
+phi <- -phi
+row.names(phi) <- c("Review Count", "Rating", "Price")
+colnames(phi) <- c("PC1", "PC2")
+phi
+```
+
+
+```{r Clustering and PCA}
+# Extracting the first two principal components
+comp_BK <- data.frame(BK_Yelp_pca$x[,1:2])
+comp_MN <- data.frame(MN_Yelp_pca$x[,1:2])
+comp_NYC <- data.frame(NYC_Yelp_pca$x[,1:2])
+
+
+# Running K-Means with K-values predetermined by Erik
+BK_kmeans <- kmeans(comp_BK, 4, nstart=4, iter.max=1000)
+MN_kmeans <- kmeans(comp_MN, 4, nstart=4, iter.max=1000)
+NYC_kmeans <- kmeans(comp_NYC, 5, nstart=4, iter.max=1000)
+
+# Adding cluster data
+BK_Yelp_pca$Cluster = BK_kmeans$cluster
+MN_Yelp_pca$Cluster = MN_kmeans$cluster
+NYC_Yelp_pca$Cluster = NYC_kmeans$cluster
+```
+
+
+```{r Biplots}
+ggbiplot(BK_Yelp_pca,
+         groups = as.factor(BK_Yelp_pca$Cluster),
+         alpha = 0.4,
+         varname.size = 4) + 
+  ggtitle("Biplot: Brookyn Yelp Data")
+ggbiplot(MN_Yelp_pca,
+         groups = as.factor(MN_Yelp_pca$Cluster),
+         alpha = 0.4,
+         varname.size = 4) + 
+  ggtitle("Biplot: Manhattan Yelp Data")
+ggbiplot(NYC_Yelp_pca,
+         groups = as.factor(NYC_Yelp_pca$Cluster),
+         alpha = 0.4,
+         varname.size = 4) + 
+  ggtitle("Biplot: NYC Yelp Data")
+```
