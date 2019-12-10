@@ -1,33 +1,37 @@
 ---
 title: "R Notebook"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
-This notebook will perform PCA and K-Means clustering on the Yelp datasets. Finally, the clusters will be visualized using biplots to show how the clustering took place. 
+This notebook will perform PCA and K-Means clustering on the Yelp datasets. Finally, the clusters will be visualized using biplots to show how the clustering took place. I will run K-Means clustering twice. First to generalize restaurants, econd to generalize NTAs.  
 
-```{r libraries}
+```{r libraries, echo = FALSE, message=FALSE}
 # Loading libraries
 library(tidyverse)
 library(lattice)
 library(caret)
 library(ggbiplot)
 library(ggplot2)
+library(cluster)
 
 # Set seed to ensure reproducibility wrt K-Means
 set.seed(123)
 ```
 
-```{r warning=FALSE}
+```{r warning=FALSE, message = FALSE, echo = FALSE}
 # Setting path 
 # Reading in data
-path <- "./Yelp/"
-BK_Yelp <- "BK_Yelp_CensusTract_NTA.csv"
-MN_Yelp <- "MN_Yelp_CensusTract_NTA.csv"
+path <- "./data/Yelp/"
+BK_Yelp <- "BK/BK_Yelp_CensusTract_NTA.csv"
+MN_Yelp <- "MN/MN_Yelp_CensusTract_NTA.csv"
 BK_Yelp <- read_csv(paste(path, BK_Yelp, sep = ""))
 MN_Yelp <- read_csv(paste(path, MN_Yelp, sep = ""))
 ```
 
-```{r Cleaning}
+The following three chunks will clean the two Yelp datasets and then proceed to extract the common columns for joining. 
+```{r Cleaning MN}
 # Cleaning the price column for MN
 MN_Yelp2 <- MN_Yelp %>% 
   mutate(price = replace(price, price == 'MISSING', NA))
@@ -41,7 +45,7 @@ MN_Yelp2$price <- as.numeric(MN_Yelp2$price)
 MN_Yelp2 <- MN_Yelp2[, c(2:16, 18, 19, 27)]
 ```
 
-```{r}
+```{r Cleaning BK}
 # Cleaning the price column for BK
 BK_Yelp2 <- BK_Yelp %>% 
   mutate(price = replace(price, price == 'MISSING', NA))
@@ -52,14 +56,15 @@ BK_Yelp2$price[which(BK_Yelp2$price == "ii")] = 2
 BK_Yelp2$price[which(BK_Yelp2$price == "iii")] = 3
 BK_Yelp2$price[which(BK_Yelp2$price == "iiii")] = 4
 BK_Yelp2$price <- as.numeric(BK_Yelp2$price)
-BK_Yelp2 <- BK_Yelp2[, c(2:16, 18, 19, 27)]
+BK_Yelp2 <- BK_Yelp2[, c(2:16, 18, 19, 28)]
 ```
 
-```{r}
+```{r NYC}
 # Joining the two together by rows
 NYC_Yelp = rbind(BK_Yelp2, MN_Yelp2)
 ```
 
+Principal Component Analysis was then performed on each of the three datasets. However, I am unsure if PCA is actually needed given that there are only three variables to be considered anyway. 
 
 ```{r}
 # Performing PCA on all three
@@ -93,23 +98,57 @@ colnames(phi) <- c("PC1", "PC2")
 phi
 ```
 
-
-```{r Clustering and PCA}
+Extracting the first two principal components for the three datasets. 
+```{r PCA}
 # Extracting the first two principal components
 comp_BK <- data.frame(BK_Yelp_pca$x[,1:2])
 comp_MN <- data.frame(MN_Yelp_pca$x[,1:2])
 comp_NYC <- data.frame(NYC_Yelp_pca$x[,1:2])
+```
 
+Let us just cluster all of the restaurants in Brooklyn and Manhattan. We need to find the optimal k-value. 
 
+```{r Optimal K Silhouette}
+sil_width <- map_dbl(2:8,  function(k){
+  model <- pam(x = comp_NYC, k = k)
+  model$silinfo$avg.width
+})
+
+data.frame(k = 2:8,
+           sil_width = sil_width) %>%
+  ggplot(aes(x = k, y = sil_width)) +
+  geom_col() +
+  scale_x_continuous(breaks = 2:8)
+```
+
+```{r Optimal K Elbow}
+tot_withinss <- map_dbl(1:10, function(k){
+  model <- kmeans(comp_NYC, k)
+  model$tot.withinss
+})
+
+data.frame(k = 1:10,
+           tot_withinss = tot_withinss) %>%
+  ggplot(aes(x = k, y = tot_withinss)) +
+  geom_line() +
+  scale_x_continuous(breaks = 1:10)
+```
+
+The silhouette score differs from the elbow plot. We will go with the silhouette score, which suggests a value of k = 7 clusters. 
+
+```{r Clustering}
 # Running K-Means with K-values predetermined by Erik
 BK_kmeans <- kmeans(comp_BK, 4, nstart=4, iter.max=1000)
 MN_kmeans <- kmeans(comp_MN, 4, nstart=4, iter.max=1000)
-NYC_kmeans <- kmeans(comp_NYC, 5, nstart=4, iter.max=1000)
+NYC_kmeans <- kmeans(comp_NYC, 7, nstart=4, iter.max=1000)
 
-# Adding cluster data
+# Adding cluster data to PCA
 BK_Yelp_pca$Cluster = BK_kmeans$cluster
 MN_Yelp_pca$Cluster = MN_kmeans$cluster
 NYC_Yelp_pca$Cluster = NYC_kmeans$cluster
+
+# Adding the cluster data back into NYC Yelp dataset 
+NYC_Yelp$Cluster = NYC_kmeans$cluster
 ```
 
 
@@ -126,7 +165,110 @@ ggbiplot(MN_Yelp_pca,
   ggtitle("Biplot: Manhattan Yelp Data")
 ggbiplot(NYC_Yelp_pca,
          groups = as.factor(NYC_Yelp_pca$Cluster),
-         alpha = 0.4,
+         alpha = 0.2,
          varname.size = 4) + 
   ggtitle("Biplot: NYC Yelp Data")
 ```
+
+Up until this point, we have worked with data with their dimensionality reduced. What if they are not? 
+
+```{r}
+# Scaling
+scaled_NYC_Yelp_df <- apply(NYC_Yelp[, 5:7], 2, scale) %>%
+  as.data.frame()
+
+# Checling for ideal k-value with silhouette analysis
+sil_width <- map_dbl(2:10,  function(k){
+  model <- pam(x = scaled_NYC_Yelp_df, k = k)
+  model$silinfo$avg.width
+})
+
+data.frame(k = 2:10,
+           sil_width = sil_width) %>%
+  ggplot(aes(x = k, y = sil_width)) +
+  geom_col() +
+  scale_x_continuous(breaks = 2:10)
+```
+Even so, it appears that k = 7 is the best. Using k = 7 , the restaurants can be clustered. 
+
+```{r nonPCA Clustering}
+# Kmeans
+NYC_fulldim_kmeans <- kmeans(scaled_NYC_Yelp_df, 7, nstart=4, iter.max=1000)
+
+#Attaching NTA and Cluster to df
+scaled_NYC_Yelp_df$NTACode <- NYC_Yelp$NTACode
+scaled_NYC_Yelp_df$Cluster <- NYC_fulldim_kmeans$cluster
+```
+
+
+Next, we will want to cluster the NTAs. Basically, we have seen how restaurants are clustered and generalized. But the question of how similar neighborhoods are remains unanswered. So then, can a profile of neighborhoods based on the cluster-count of restaurants be built, and then clustered? 
+
+```{r Cluster NTA}
+# Grouping by NTAs and then counting the number from each cluster present
+# First for the dataset that has been PCAed and then the other
+NYC_Yelp_cluster_count <- NYC_Yelp %>%
+  select(., c("NTACode", "Cluster")) %>%
+  group_by(NTACode) %>%
+  table() 
+NYC_Yelp_cluster_count_NTACode <- rownames(NYC_Yelp_cluster_count)
+NYC_Yelp_cluster_count_NTACode <- as.data.frame(NYC_Yelp_cluster_count_NTACode)
+NYC_Yelp_cluster_count <- NYC_Yelp_cluster_count %>%
+  as.matrix.data.frame()
+
+# Non PCA
+NYC_Yelp_cluster_count_fulldim <- scaled_NYC_Yelp_df %>%
+  select(., c("NTACode", "Cluster")) %>%
+  group_by(NTACode) %>%
+  table() 
+NYC_Yelp_cluster_count_NTACode_fulldim <- rownames(NYC_Yelp_cluster_count_fulldim)
+NYC_Yelp_cluster_count_NTACode_fulldim <- as.data.frame(NYC_Yelp_cluster_count_NTACode_fulldim)
+NYC_Yelp_cluster_count_fulldim <- NYC_Yelp_cluster_count_fulldim %>%
+  as.matrix.data.frame()
+```
+
+The question that needs to be answered is, what is the optimal k-value to be used in this analysis? Using code from Datacamp's R course and (http://rpubs.com/mpfoley73/486772): 
+
+```{r Elbow Plot Analysis}
+tot_withinss <- map_dbl(1:10, function(k){
+  model <- kmeans(NYC_Yelp_cluster_count, k)
+  model$tot.withinss
+})
+
+data.frame(k = 1:10,
+           tot_withinss = tot_withinss) %>%
+  ggplot(aes(x = k, y = tot_withinss)) +
+  geom_line() +
+  scale_x_continuous(breaks = 1:10)
+```
+
+```{r Silhouette Analysis}
+sil_width <- map_dbl(2:10,  function(k){
+  model <- pam(x = NYC_Yelp_cluster_count_fulldim, k = k)
+  model$silinfo$avg.width
+})
+
+data.frame(k = 2:10,
+           sil_width = sil_width) %>%
+  ggplot(aes(x = k, y = sil_width)) +
+  geom_col() +
+  scale_x_continuous(breaks = 2:10)
+```
+
+
+```{r}
+# Running K-Means
+NYC_Yelp_cluster_count_kmeans <- kmeans(NYC_Yelp_cluster_count, 2, nstart=4, iter.max=1000)
+NYC_Yelp_cluster_count_kmeans_fulldim <- kmeans(NYC_Yelp_cluster_count_fulldim, 2, nstart=4, iter.max=1000)
+
+# Appending to table
+NYC_Yelp_cluster_count_NTACode$Cluster <- NYC_Yelp_cluster_count_kmeans$cluster
+colnames(NYC_Yelp_cluster_count_NTACode)[1] <- "NTACode"
+
+NYC_Yelp_cluster_count_NTACode_fulldim$Cluster <- NYC_Yelp_cluster_count_kmeans_fulldim$cluster
+colnames(NYC_Yelp_cluster_count_NTACode_fulldim)[1] <- "NTACode"
+
+# Exporting as CSV
+write.csv(NYC_Yelp_cluster_count_NTACode, "NYC_Yelp_NTA_Clustered.csv")
+write.csv(NYC_Yelp_cluster_count_NTACode_fulldim, "NYC_Yelp_NTA_Clustered_nonPCA_k2.csv")
+```
+
