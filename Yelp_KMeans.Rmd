@@ -64,9 +64,9 @@ BK_Yelp2 <- BK_Yelp2[, c(2:16, 18, 19, 28)]
 NYC_Yelp = rbind(BK_Yelp2, MN_Yelp2)
 ```
 
-Principal Component Analysis was then performed on each of the three datasets. However, I am unsure if PCA is actually needed given that there are only three variables to be considered anyway. 
+```{r eval = FALSE}
+## Principal Component Analysis was then performed on each of the three datasets. However, I am unsure if PCA is actually needed given that there are only three variables to be considered anyway.
 
-```{r}
 # Performing PCA on all three
 BK_Yelp_pca <- prcomp(BK_Yelp2[,c(5:7)], 
                      center = T,
@@ -82,8 +82,10 @@ NYC_Yelp_pca <- prcomp(NYC_Yelp[,c(5:7)],
 summary(NYC_Yelp_pca)
 ```
 
-Just calculating for BK, we can see that for the first PC, it is almost equally affected by the three factors whereas PC2 is more affected by Ratings.
-```{r}
+
+```{r eval = FALSE}
+##Just calculating for BK, we can see that for the first PC, it is almost equally affected by the three factors whereas PC2 is more affected by Ratings.
+
 # create new data frame with centered variables
 scaled_df <- apply(BK_Yelp2[,c(5:7)], 2, scale)
 head(scaled_df)
@@ -98,8 +100,8 @@ colnames(phi) <- c("PC1", "PC2")
 phi
 ```
 
-Extracting the first two principal components for the three datasets. 
-```{r PCA}
+```{r PCA, eval = FALSE}
+##Extracting the first two principal components for the three datasets. 
 # Extracting the first two principal components
 comp_BK <- data.frame(BK_Yelp_pca$x[,1:2])
 comp_MN <- data.frame(MN_Yelp_pca$x[,1:2])
@@ -108,7 +110,7 @@ comp_NYC <- data.frame(NYC_Yelp_pca$x[,1:2])
 
 Let us just cluster all of the restaurants in Brooklyn and Manhattan. We need to find the optimal k-value. 
 
-```{r Optimal K Silhouette}
+```{r Optimal K Silhouette, eval = FALSE}
 sil_width <- map_dbl(2:8,  function(k){
   model <- pam(x = comp_NYC, k = k)
   model$silinfo$avg.width
@@ -121,7 +123,7 @@ data.frame(k = 2:8,
   scale_x_continuous(breaks = 2:8)
 ```
 
-```{r Optimal K Elbow}
+```{r Optimal K Elbow, eval = FALSE}
 tot_withinss <- map_dbl(1:10, function(k){
   model <- kmeans(comp_NYC, k)
   model$tot.withinss
@@ -134,9 +136,10 @@ data.frame(k = 1:10,
   scale_x_continuous(breaks = 1:10)
 ```
 
-The silhouette score differs from the elbow plot. We will go with the silhouette score, which suggests a value of k = 7 clusters. 
 
-```{r Clustering}
+```{r Clustering, eval = FALSE}
+## The silhouette score differs from the elbow plot. We will go with the silhouette score, which suggests a value of k = 7 clusters. 
+
 # Running K-Means with K-values predetermined by Erik
 BK_kmeans <- kmeans(comp_BK, 4, nstart=4, iter.max=1000)
 MN_kmeans <- kmeans(comp_MN, 4, nstart=4, iter.max=1000)
@@ -152,7 +155,7 @@ NYC_Yelp$Cluster = NYC_kmeans$cluster
 ```
 
 
-```{r Biplots}
+```{r Biplots, eval = FALSE}
 ggbiplot(BK_Yelp_pca,
          groups = as.factor(BK_Yelp_pca$Cluster),
          alpha = 0.4,
@@ -170,14 +173,14 @@ ggbiplot(NYC_Yelp_pca,
   ggtitle("Biplot: NYC Yelp Data")
 ```
 
-Up until this point, we have worked with data with their dimensionality reduced. What if they are not? 
+Without reducing the dimensionality of the data, 
 
 ```{r}
 # Scaling
 scaled_NYC_Yelp_df <- apply(NYC_Yelp[, 5:7], 2, scale) %>%
   as.data.frame()
 
-# Checling for ideal k-value with silhouette analysis
+# Checking for ideal k-value with silhouette analysis
 sil_width <- map_dbl(2:10,  function(k){
   model <- pam(x = scaled_NYC_Yelp_df, k = k)
   model$silinfo$avg.width
@@ -188,6 +191,18 @@ data.frame(k = 2:10,
   ggplot(aes(x = k, y = sil_width)) +
   geom_col() +
   scale_x_continuous(breaks = 2:10)
+
+# Checking for ideal k-value with elbow plot
+tot_withinss <- map_dbl(2:10, function(k){
+  model <- kmeans(scaled_NYC_Yelp_df, k)
+  model$tot.withinss
+})
+
+data.frame(k = 2:10,
+           tot_withinss = tot_withinss) %>%
+  ggplot(aes(x = k, y = tot_withinss)) +
+  geom_line() +
+  scale_x_continuous(breaks = 2:10)
 ```
 Even so, it appears that k = 7 is the best. Using k = 7 , the restaurants can be clustered. 
 
@@ -195,9 +210,15 @@ Even so, it appears that k = 7 is the best. Using k = 7 , the restaurants can be
 # Kmeans
 NYC_fulldim_kmeans <- kmeans(scaled_NYC_Yelp_df, 7, nstart=4, iter.max=1000)
 
-#Attaching NTA and Cluster to df
-scaled_NYC_Yelp_df$NTACode <- NYC_Yelp$NTACode
+#Attaching Cluster to df
 scaled_NYC_Yelp_df$Cluster <- NYC_fulldim_kmeans$cluster
+colnames(scaled_NYC_Yelp_df)[1:3] <- c("ReviewCount", "Ratings", "Price")
+
+# Exporting as csv for pair plotting in Python Seaborn
+write.csv(scaled_NYC_Yelp_df, paste(path, "NYC_Yelp_Clustered_k7.csv", sep = ""))
+
+# Attaching NTACode to df
+scaled_NYC_Yelp_df$NTACode <- NYC_Yelp$NTACode
 ```
 
 
@@ -206,14 +227,14 @@ Next, we will want to cluster the NTAs. Basically, we have seen how restaurants 
 ```{r Cluster NTA}
 # Grouping by NTAs and then counting the number from each cluster present
 # First for the dataset that has been PCAed and then the other
-NYC_Yelp_cluster_count <- NYC_Yelp %>%
-  select(., c("NTACode", "Cluster")) %>%
-  group_by(NTACode) %>%
-  table() 
-NYC_Yelp_cluster_count_NTACode <- rownames(NYC_Yelp_cluster_count)
-NYC_Yelp_cluster_count_NTACode <- as.data.frame(NYC_Yelp_cluster_count_NTACode)
-NYC_Yelp_cluster_count <- NYC_Yelp_cluster_count %>%
-  as.matrix.data.frame()
+# NYC_Yelp_cluster_count <- NYC_Yelp %>%
+#   select(., c("NTACode", "Cluster")) %>%
+#   group_by(NTACode) %>%
+#   table()
+# NYC_Yelp_cluster_count_NTACode <- rownames(NYC_Yelp_cluster_count)
+# NYC_Yelp_cluster_count_NTACode <- as.data.frame(NYC_Yelp_cluster_count_NTACode)
+# NYC_Yelp_cluster_count <- NYC_Yelp_cluster_count %>%
+#   as.matrix.data.frame()
 
 # Non PCA
 NYC_Yelp_cluster_count_fulldim <- scaled_NYC_Yelp_df %>%
@@ -222,28 +243,34 @@ NYC_Yelp_cluster_count_fulldim <- scaled_NYC_Yelp_df %>%
   table() 
 NYC_Yelp_cluster_count_NTACode_fulldim <- rownames(NYC_Yelp_cluster_count_fulldim)
 NYC_Yelp_cluster_count_NTACode_fulldim <- as.data.frame(NYC_Yelp_cluster_count_NTACode_fulldim)
-NYC_Yelp_cluster_count_fulldim <- NYC_Yelp_cluster_count_fulldim %>%
-  as.matrix.data.frame()
+NYC_Yelp_cluster_propcount_fulldim <- NYC_Yelp_cluster_count_fulldim %>%
+  as.matrix() %>%
+  prop.table(., margin = 1) %>%
+  as.matrix.data.frame() %>%
+  as.data.frame()
+# NYC_Yelp_cluster_count_fulldim <- NYC_Yelp_cluster_count_fulldim %>%
+#   as.matrix.data.frame() %>%
+#   as.data.frame()
 ```
 
 The question that needs to be answered is, what is the optimal k-value to be used in this analysis? Using code from Datacamp's R course and (http://rpubs.com/mpfoley73/486772): 
 
 ```{r Elbow Plot Analysis}
-tot_withinss <- map_dbl(1:10, function(k){
-  model <- kmeans(NYC_Yelp_cluster_count, k)
+tot_withinss <- map_dbl(2:10, function(k){
+  model <- kmeans(NYC_Yelp_cluster_propcount_fulldim, k)
   model$tot.withinss
 })
 
-data.frame(k = 1:10,
+data.frame(k = 2:10,
            tot_withinss = tot_withinss) %>%
   ggplot(aes(x = k, y = tot_withinss)) +
   geom_line() +
-  scale_x_continuous(breaks = 1:10)
+  scale_x_continuous(breaks = 2:10)
 ```
 
 ```{r Silhouette Analysis}
 sil_width <- map_dbl(2:10,  function(k){
-  model <- pam(x = NYC_Yelp_cluster_count_fulldim, k = k)
+  model <- pam(x = NYC_Yelp_cluster_propcount_fulldim, k = k)
   model$silinfo$avg.width
 })
 
@@ -257,18 +284,22 @@ data.frame(k = 2:10,
 
 ```{r}
 # Running K-Means
-NYC_Yelp_cluster_count_kmeans <- kmeans(NYC_Yelp_cluster_count, 2, nstart=4, iter.max=1000)
-NYC_Yelp_cluster_count_kmeans_fulldim <- kmeans(NYC_Yelp_cluster_count_fulldim, 2, nstart=4, iter.max=1000)
+#NYC_Yelp_cluster_count_kmeans <- kmeans(NYC_Yelp_cluster_count, 2, nstart=4, iter.max=1000)
+NYC_Yelp_cluster_count_kmeans_fulldim <- kmeans(NYC_Yelp_cluster_propcount_fulldim, 3, nstart=4, iter.max=1000)
 
 # Appending to table
-NYC_Yelp_cluster_count_NTACode$Cluster <- NYC_Yelp_cluster_count_kmeans$cluster
-colnames(NYC_Yelp_cluster_count_NTACode)[1] <- "NTACode"
+#NYC_Yelp_cluster_count_NTACode$Cluster <- NYC_Yelp_cluster_count_kmeans$cluster
+#colnames(NYC_Yelp_cluster_count_NTACode)[1] <- "NTACode"
   
 NYC_Yelp_cluster_count_NTACode_fulldim$Cluster <- NYC_Yelp_cluster_count_kmeans_fulldim$cluster
 colnames(NYC_Yelp_cluster_count_NTACode_fulldim)[1] <- "NTACode"
 
+NYC_Yelp_cluster_propcount_fulldim$`NTA Cluster` <- NYC_Yelp_cluster_count_kmeans_fulldim$cluster
+colnames(NYC_Yelp_cluster_propcount_fulldim)[1:7] <- c("Yelp_Cluster1", "Yelp_Cluster2", "Yelp_Cluster3", "Yelp_Cluster4", "Yelp_Cluster5", "Yelp_Cluster6", "Yelp_Cluster7")
+
 # Exporting as CSV
-write.csv(NYC_Yelp_cluster_count_NTACode, "NYC_Yelp_NTA_Clustered.csv")
+#write.csv(NYC_Yelp_cluster_count_NTACode, "NYC_Yelp_NTA_Clustered.csv")
 write.csv(NYC_Yelp_cluster_count_NTACode_fulldim, "NYC_Yelp_NTA_Clustered_nonPCA_k2.csv")
+write.csv(NYC_Yelp_cluster_propcount_fulldim, "./data/NYC_Yelp_NTA_Clustered_Profile_k2.csv")
 ```
 
