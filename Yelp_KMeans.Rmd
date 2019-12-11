@@ -263,7 +263,7 @@ NYC_Yelp_cluster_count_kmeans_fulldim <- kmeans(NYC_Yelp_cluster_count_fulldim, 
 # Appending to table
 NYC_Yelp_cluster_count_NTACode$Cluster <- NYC_Yelp_cluster_count_kmeans$cluster
 colnames(NYC_Yelp_cluster_count_NTACode)[1] <- "NTACode"
-
+  
 NYC_Yelp_cluster_count_NTACode_fulldim$Cluster <- NYC_Yelp_cluster_count_kmeans_fulldim$cluster
 colnames(NYC_Yelp_cluster_count_NTACode_fulldim)[1] <- "NTACode"
 
